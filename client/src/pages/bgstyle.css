@@ -1,0 +1,6 @@
+.bg-img{
+    background-image: url('../Components/Images/Pattren.png');
+  background-size: cover; 
+  /* background-position: center; Centers the background image */
+  /* background-repeat: no-repeat; Prevents the image from repeating */
+}
