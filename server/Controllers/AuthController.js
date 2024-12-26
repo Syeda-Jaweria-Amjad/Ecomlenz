@@ -631,7 +631,7 @@ const sellerInfo = async (req, res) => {
   const { sellerId } = req.params;
 
   try {
-    // Fetch seller info, including the storefront (ASINs list)
+    // Fetch seller info from Keepa API
     const sellerResponse = await axios.get("https://api.keepa.com/seller", {
       params: {
         key: process.env.KEEPA_API_KEY,
@@ -643,52 +643,58 @@ const sellerInfo = async (req, res) => {
 
     const sellerData = sellerResponse.data.sellers;
 
-    console.log("sellerData", sellerData);
+    // Debugging output
+    console.log("sellerData:", sellerData);
 
+    // Validate that the seller exists in the Keepa response
     if (sellerData && sellerData[sellerId]) {
-      const sellerInfo = sellerData[sellerId];
+      const sellerInfo = sellerData[sellerId]; // Access seller data by sellerId
       const { sellerName } = sellerInfo;
 
-      let existingSeller = await SellerData.findOne({
+      // Check if the seller already exists in your database
+      const existingSeller = await SellerData.findOne({
         sellerId,
         userId: req.user._id,
       });
 
-      // If seller exists, update only if user is not associated
       if (existingSeller) {
-        res.status(403).json({
+        return res.status(403).json({
           success: false,
-          message: "Seller Already exist",
-        });
-      } else {
-        // subscription limit logic
-        const user = await UserModal.findOne({ _id: req.user._id }).populate(
-          "subscription"
-        );
-        const sellers = await sellerData.find({ userId: req.user._id });
-        if (user?.subscription?.sellers === sellers?.length) {
-          return res.status(403).json({
-            success: false,
-            message:
-              "You have reached the limit of adding maximum sellers, Please upgrade your package!",
-          });
-        }
-        const newSeller = new SellerData({
-          sellerId,
-          sellerName: sellerName,
-          date: new Date(),
-          userId: req.user._id,
-        });
-        await newSeller.save();
-        res.status(200).json({
-          success: true,
-          message: "Seller Added Successfully",
+          message: "Seller already exists",
         });
       }
+
+      // Check subscription limit for the user
+      const user = await UserModal.findOne({ _id: req.user._id }).populate(
+        "subscription"
+      );
+
+      const userSellers = await SellerData.find({ userId: req.user._id }); // Query database for user sellers
+      if (user?.subscription?.sellers === userSellers.length) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "You have reached the limit of adding maximum sellers. Please upgrade your package!",
+        });
+      }
+
+      // Save new seller to the database
+      const newSeller = new SellerData({
+        sellerId,
+        sellerName,
+        date: new Date(),
+        userId: req.user._id,
+      });
+      await newSeller.save();
+
+      return res.status(200).json({
+        success: true,
+        message: "Seller added successfully",
+      });
     } else {
-      res.status(404).json({
+      return res.status(404).json({
         success: false,
-        message: "Error from keepa",
+        message: "Seller data not found in Keepa response",
       });
     }
   } catch (error) {
@@ -696,9 +702,14 @@ const sellerInfo = async (req, res) => {
       "Error fetching seller or product data from Keepa:",
       error.response ? error.response.data : error.message
     );
-    res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: "An error occurred while fetching seller data",
+    });
   }
 };
+
+
 const markAsReadNewProducts = async (req, res) => {
   try {
     const sellerId = req.params.sellerId;
@@ -781,25 +792,28 @@ const updateSellerInfo = async (sellerId, userId) => {
 
       // Filter products added after the seller's addition date
       const productDetails = productData
-        // ?.filter((product) => {
-        //   const offers = Array.isArray(product.offers)
-        //     ? product.offers.filter((offer) => offer.sellerId === sellerId)
-        //     : [];
+      //condition -(products after added seller) code starts
+        ?.filter((product) => {
+          const offers = Array.isArray(product.offers)
+            ? product.offers.filter((offer) => offer.sellerId === sellerId)
+            : [];
 
-        //   // If offers array is empty, skip this product
-        //   if (offers.length === 0) return false;
+          // If offers array is empty, skip this product
+          if (offers.length === 0) return false;
 
-        //   // Extract the date from offerCSVArray for comparison
-        //   const dateFromOfferCSV = offers[0].offerCSV[0];
-        //   const offerCSVTimestamp = (dateFromOfferCSV + 21564000) * 60000;
-        //   const offerCSVDate = new Date(offerCSVTimestamp);
+          // Extract the date from offerCSVArray for comparison
+          const dateFromOfferCSV = offers[0].offerCSV[0];
+          const offerCSVTimestamp = (dateFromOfferCSV + 21564000) * 60000;
+          const offerCSVDate = new Date(offerCSVTimestamp);
 
-        //   // Only include products that have been updated after the seller's added date
-        //   return (
-        //     offerCSVDate > sellerAddDate &&
-        //     existingSeller.pauseStatus.time < offerCSVDate
-        //   );
-        // })
+          // Only include products that have been updated after the seller's added date
+          return (
+            offerCSVDate > sellerAddDate &&
+            existingSeller.pauseStatus.time < offerCSVDate
+          );
+        })
+
+        // condition code ends
         ?.map((product) => {
           const images = product.imagesCSV ? product.imagesCSV.split(",") : [];
 

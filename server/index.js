@@ -76,7 +76,7 @@ app.post(
 app.use(bodyParser.json());
 app.use(
   cors({
-    origin: "*", // Frontend URL
+    origin: "http://localhost:3000", // Frontend URL
     credentials: true, // Allows cookies to be sent
   })
 );
